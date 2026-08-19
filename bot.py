@@ -203,7 +203,7 @@ class CasinoGame:
             {"chance": 45, "multiplier": 0, "message": "Лох"},
         ]
 
-    def play_round(self, bet):
+    def play_round(self, bet, all_in=False):
         balance = BalanceManager.load_balance(self.user_id)
 
         if bet <= 0:
@@ -228,8 +228,9 @@ class CasinoGame:
                 net_result = win - bet
                 new_balance = balance + net_result
                 BalanceManager.save_balance(self.user_id, new_balance)
+                prefix = "ALL IN! " if all_in else ""
                 return True, (
-                    f"{message}\nСтавка: {bet}\nВыигрыш: {win}\n"
+                    f"{prefix}{message}\nСтавка: {bet}\nВыигрыш: {win}\n"
                     f"Чистая прибыль: {'+' if net_result >= 0 else ''}{net_result}\n"
                     f"Текущий баланс: {new_balance}"
                 ), new_balance
@@ -238,11 +239,24 @@ class CasinoGame:
         net_result = win - bet
         new_balance = balance + net_result
         BalanceManager.save_balance(self.user_id, new_balance)
+        prefix = "ALL IN! " if all_in else ""
         return True, (
-            f"Лох\nСтавка: {bet}\nВыигрыш: {win}\n"
+            f"{prefix}Лох\nСтавка: {bet}\nВыигрыш: {win}\n"
             f"Чистая прибыль: {'+' if net_result >= 0 else ''}{net_result}\n"
             f"Текущий баланс: {new_balance}"
         ), new_balance
+
+    def play_all_in(self):
+        """Ставит весь текущий баланс игрока."""
+        balance = BalanceManager.load_balance(self.user_id)
+
+        if balance <= 0:
+            return False, "Баланс пуст — идти ва-банк не с чем!", balance
+
+        if balance < MIN_BET:
+            return False, f"Минимальная ставка - {MIN_BET} монет, а у вас всего {balance}!", balance
+
+        return self.play_round(balance, all_in=True)
 
 
 # ---------- Инвестиции (валюты) ----------
