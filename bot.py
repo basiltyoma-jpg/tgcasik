@@ -559,7 +559,6 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📈 Инвестировать", callback_data="invest")],
         [InlineKeyboardButton(text="🎒 Мой инвентарь", callback_data="inventory")],
         [InlineKeyboardButton(text="💰 Продать валюту", callback_data="sell")],
-        [InlineKeyboardButton(text="💰 Мой баланс", callback_data="balance")],
     ])
 
 
