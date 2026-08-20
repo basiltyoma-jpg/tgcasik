@@ -170,6 +170,25 @@ class Inventory:
         self.save_inventory()
         return item_name, total_sale, profit_loss, current_price
 
+    def sell_all_items(self):
+        self.items = self.load_inventory()
+        if not self.items:
+            return 0, 0
+
+        total_sale = 0
+        total_profit_loss = 0
+
+        for item in self.items:
+            amount = item["amount"]
+            current_price = item["current_price"]
+            purchase_price = item["purchase_price"]
+            total_sale += amount * current_price
+            total_profit_loss += (amount * current_price) - (amount * purchase_price)
+
+        self.items = []
+        self.save_inventory()
+        return total_sale, total_profit_loss
+
     def get_inventory_text(self):
         self.items = self.load_inventory()
         if not self.items:
@@ -557,6 +576,21 @@ def ludka_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def casino_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔥 ALL IN", callback_data="casino_all_in")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="ludka")],
+    ])
+
+
+def casino_result_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎰 Еще раз", callback_data="casino")],
+        [InlineKeyboardButton(text="🔥 ALL IN", callback_data="casino_all_in")],
+        [InlineKeyboardButton(text="⬅️ В меню", callback_data="menu")],
+    ])
+
+
 def slots_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎰 Крутить (500)", callback_data="slots_spin")],
@@ -663,9 +697,19 @@ async def cb_casino(query: CallbackQuery, state: FSMContext):
     await state.set_state(Form.casino_bet)
     await safe_edit(
         query,
-        f"🎰 КАЗИНО\nВведите сумму ставки (мин. {MIN_BET}):",
-        back_keyboard(),
+        f"🎰 КАЗИНО\nВведите сумму ставки (мин. {MIN_BET}) или нажмите ALL IN:",
+        casino_keyboard(),
     )
+
+
+@router.callback_query(F.data == "casino_all_in")
+async def cb_casino_all_in(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    await state.clear()
+    user_id = query.from_user.id
+    casino = CasinoGame(user_id)
+    _, result_message, _ = casino.play_all_in()
+    await safe_edit(query, result_message, casino_result_keyboard())
 
 
 @router.callback_query(F.data == "blackjack")
@@ -794,10 +838,41 @@ async def cb_sell(query: CallbackQuery, state: FSMContext):
         arrow = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➡️"
         text += f"{i}. {item['name'].upper()} | {item['amount']} ед. | Куплено: {item['purchase_price']} | Текущая: {item['current_price']} {arrow}\n"
 
-    text += "\nВведите номер и количество через пробел (например: 1 10):"
+    text += "\nВведите номер и количество через пробел (например: 1 10) или нажмите кнопку «Продать всё»:"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💥 Продать всё", callback_data="sell_all")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")],
+    ])
 
     await state.set_state(Form.sell_item)
-    await safe_edit(query, text, back_keyboard())
+    await safe_edit(query, text, keyboard)
+
+
+@router.callback_query(F.data == "sell_all")
+async def cb_sell_all(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    await state.clear()
+    user_id = query.from_user.id
+    investment = get_investment(user_id)
+    inventory = investment.inventory
+
+    total_sale, profit_loss = inventory.sell_all_items()
+
+    if total_sale > 0:
+        balance = BalanceManager.load_balance(user_id)
+        new_balance = balance + total_sale
+        BalanceManager.save_balance(user_id, new_balance)
+
+        arrow = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➡️"
+        result_message = (f"💥 Проданы все предметы!\n"
+                          f"Получено: {total_sale} монет\n"
+                          f"П/У: {arrow} {profit_loss:+d}\n"
+                          f"Новый баланс: {new_balance}")
+    else:
+        result_message = "📭 Инвентарь пуст, нечего продавать!"
+
+    await safe_edit(query, result_message, back_keyboard())
 
 
 @router.callback_query(F.data == "balance")
@@ -823,12 +898,7 @@ async def msg_casino_bet(message: Message, state: FSMContext):
     _, result_message, _ = casino.play_round(bet)
     await state.clear()
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎰 Еще раз", callback_data="casino")],
-        [InlineKeyboardButton(text="⬅️ В меню", callback_data="menu")],
-    ])
-
-    await message.answer(result_message, reply_markup=keyboard)
+    await message.answer(result_message, reply_markup=casino_result_keyboard())
 
 
 @router.message(Form.blackjack_bet)
@@ -906,6 +976,7 @@ async def msg_sell_item(message: Message, state: FSMContext):
                           f"П/У: {arrow} {profit_loss:+d} | Баланс: {new_balance}")
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💥 Продать всё", callback_data="sell_all")],
             [InlineKeyboardButton(text="💰 Продать еще", callback_data="sell")],
             [InlineKeyboardButton(text="⬅️ В меню", callback_data="menu")],
         ])
