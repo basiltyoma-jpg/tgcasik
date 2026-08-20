@@ -23,10 +23,27 @@ if not TOKEN:
 
 BALANCE_FILE = "balance.txt"
 INVENTORY_FILE = "inventory.json"
+LOANS_FILE = "loans.json"
 MIN_BET = 50
 DEFAULT_BALANCE = 100
 
 router = Router()
+
+
+# ---------- Менеджер Ключевой Ставки ЦБ ----------
+
+class KeyRateManager:
+    rate = 16.0  # Начальная ставка
+
+    @classmethod
+    def update_rate(cls):
+        # Ставка колеблется от 1% до 50%
+        change = random.randint(-4, 4)
+        cls.rate = max(1.0, min(50.0, cls.rate + change))
+
+    @classmethod
+    def get_rate(cls):
+        return round(cls.rate, 1)
 
 
 # ---------- Состояния FSM ----------
@@ -36,6 +53,9 @@ class Form(StatesGroup):
     blackjack_bet = State()
     invest_amount = State()
     sell_item = State()
+    microloan_amount = State()
+    credit_amount = State()
+    mortgage_amount = State()
 
 
 # ---------- Баланс ----------
@@ -67,6 +87,83 @@ class BalanceManager:
             return True, bonus, new_balance
 
         return False, 0, balance
+
+
+# ---------- Кредиты ----------
+
+class LoanManager:
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self.filename = f"{self.user_id}_{LOANS_FILE}"
+
+    def load_loans(self):
+        try:
+            if Path(self.filename).exists():
+                with open(self.filename, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            return []
+        except (OSError, ValueError, json.JSONDecodeError):
+            return []
+
+    def save_loans(self, loans):
+        with open(self.filename, "w", encoding="utf-8") as f:
+            json.dump(loans, f, ensure_ascii=False, indent=2)
+
+    def get_loans_count(self):
+        return len(self.load_loans())
+
+    def take_loan(self, loan_type: str, amount: int, interest_rate: float):
+        loans = self.load_loans()
+        if len(loans) >= 3:
+            return False, "🛑 Достигнут лимит! Можно иметь максимум 3 активных кредита.", 0
+
+        total_due = int(amount * (1 + interest_rate / 100))
+        loans.append({
+            "type": loan_type,
+            "principal": amount,
+            "rate": interest_rate,
+            "total_due": total_due,
+            "date": datetime.now().strftime("%d.%m.%Y %H:%M")
+        })
+        self.save_loans(loans)
+
+        balance = BalanceManager.load_balance(self.user_id)
+        BalanceManager.save_balance(self.user_id, balance + amount)
+
+        return True, f"✅ Вы успешно взяли {loan_type.lower()} на {amount} монет تحت {interest_rate}%!\nК возврату: {total_due} монет.", total_due
+
+    def pay_all_loans(self):
+        loans = self.load_loans()
+        if not loans:
+            return False, "📭 У вас нет активных кредитов!"
+
+        total_due = sum(item["total_due"] for item in loans)
+        balance = BalanceManager.load_balance(self.user_id)
+
+        if balance < total_due:
+            return False, f"❌ Недостаточно средств для погашения всех кредитов!\nСумма долга: {total_due} монет.\nВаш баланс: {balance} монет."
+
+        new_balance = balance - total_due
+        BalanceManager.save_balance(self.user_id, new_balance)
+        self.save_loans([])
+
+        return True, f"🎉 Все кредиты успешно погашены на сумму {total_due} монет!\nОстаток баланса: {new_balance} монет."
+
+    def get_loans_text(self):
+        loans = self.load_loans()
+        key_rate = KeyRateManager.get_rate()
+        text = f"🏛 **Кредитный отдел** (КС ЦБ: {key_rate}%)\n\n"
+
+        if not loans:
+            text += "📭 У вас нет активных кредитов (Доступно: 3/3).\n"
+        else:
+            total_debt = sum(item["total_due"] for item in loans)
+            text += f"📜 **Ваши активные кредиты ({len(loans)}/3):**\n"
+            for i, item in enumerate(loans, 1):
+                text += f"{i}. {item['type']} | Взято: {item['principal']} | Долог: {item['total_due']} ({item['rate']}%)\n"
+            text += f"\n💰 **Общий долг:** {total_debt} монет\n"
+
+        return text
 
 
 # ---------- Инвентарь ----------
@@ -556,6 +653,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎲 Лудка", callback_data="ludka")],
         [InlineKeyboardButton(text="📈 Инвестиции", callback_data="invest")],
+        [InlineKeyboardButton(text="🏦 Кредиты", callback_data="loans")],
         [InlineKeyboardButton(text="🎒 Инвентарь", callback_data="inventory")],
         [InlineKeyboardButton(text="💰 Продажа", callback_data="sell")],
     ])
@@ -564,6 +662,16 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 def back_keyboard(callback_data: str = "menu") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)],
+    ])
+
+
+def loans_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚡ Микрозайм (1k - 20k)", callback_data="loan_micro")],
+        [InlineKeyboardButton(text="💳 Кредит (20k - 50k)", callback_data="loan_credit")],
+        [InlineKeyboardButton(text="🏠 Ипотека (до 100k)", callback_data="loan_mortgage")],
+        [InlineKeyboardButton(text="❌ Закрыть все кредиты", callback_data="loan_pay_all")],
+        [InlineKeyboardButton(text="⬅️ В меню", callback_data="menu")],
     ])
 
 
@@ -614,7 +722,8 @@ async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboar
 
 
 def balance_line(granted: bool, bonus_amount: int, balance: int) -> str:
-    text = f"💰 Баланс: {balance}"
+    key_rate = KeyRateManager.get_rate()
+    text = f"💰 Баланс: {balance} монет | 🏛 Ставка ЦБ: {key_rate}%"
     if granted:
         text += f" (+{bonus_amount} бонус)"
     return text
@@ -650,6 +759,88 @@ async def cb_menu(query: CallbackQuery, state: FSMContext):
         f"🎮 Меню | {balance_line(granted, bonus_amount, new_balance)}",
         main_menu_keyboard(),
     )
+
+
+# ---------- Раздел Кредиты ----------
+
+@router.callback_query(F.data == "loans")
+async def cb_loans(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    await state.clear()
+    user_id = query.from_user.id
+    loan_mgr = LoanManager(user_id)
+
+    await safe_edit(query, loan_mgr.get_loans_text(), loans_keyboard())
+
+
+@router.callback_query(F.data == "loan_micro")
+async def cb_loan_micro(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    user_id = query.from_user.id
+    loan_mgr = LoanManager(user_id)
+
+    if loan_mgr.get_loans_count() >= 3:
+        await safe_edit(query, "🛑 У вас уже 3 активных кредита! Погасите имеющиеся, чтобы взять новый.", back_keyboard("loans"))
+        return
+
+    rate = round(KeyRateManager.get_rate() + 40.0, 1)  # Высокие %
+    await state.set_state(Form.microloan_amount)
+
+    await safe_edit(
+        query,
+        f"⚡ **Микрозайм**\nСумма: от 1,000 до 20,000 монет.\nТекущий процент: {rate}%\n\nВведите желаемую сумму:",
+        back_keyboard("loans"),
+    )
+
+
+@router.callback_query(F.data == "loan_credit")
+async def cb_loan_credit(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    user_id = query.from_user.id
+    loan_mgr = LoanManager(user_id)
+
+    if loan_mgr.get_loans_count() >= 3:
+        await safe_edit(query, "🛑 У вас уже 3 активных кредита! Погасите имеющиеся, чтобы взять новый.", back_keyboard("loans"))
+        return
+
+    rate = round(KeyRateManager.get_rate() + 15.0, 1)  # Средние %
+    await state.set_state(Form.credit_amount)
+
+    await safe_edit(
+        query,
+        f"💳 **Обычный кредит**\nСумма: от 20,000 до 50,000 монет.\nТекущий процент: {rate}%\n\nВведите желаемую сумму:",
+        back_keyboard("loans"),
+    )
+
+
+@router.callback_query(F.data == "loan_mortgage")
+async def cb_loan_mortgage(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    user_id = query.from_user.id
+    loan_mgr = LoanManager(user_id)
+
+    if loan_mgr.get_loans_count() >= 3:
+        await safe_edit(query, "🛑 У вас уже 3 активных кредита! Погасите имеющиеся, чтобы взять новый.", back_keyboard("loans"))
+        return
+
+    rate = round(KeyRateManager.get_rate() + 3.0, 1)  # Низкие %
+    await state.set_state(Form.mortgage_amount)
+
+    await safe_edit(
+        query,
+        f"🏠 **Ипотека**\nСумма: до 100,000 монет.\nТекущий процент: {rate}%\n\nВведите желаемую сумму:",
+        back_keyboard("loans"),
+    )
+
+
+@router.callback_query(F.data == "loan_pay_all")
+async def cb_loan_pay_all(query: CallbackQuery):
+    await query.answer()
+    user_id = query.from_user.id
+    loan_mgr = LoanManager(user_id)
+
+    _, msg = loan_mgr.pay_all_loans()
+    await safe_edit(query, msg, back_keyboard("loans"))
 
 
 @router.callback_query(F.data == "ludka")
@@ -885,6 +1076,69 @@ async def cb_balance(query: CallbackQuery):
 
 # ---------- Обработка текстовых сообщений по состояниям ----------
 
+@router.message(Form.microloan_amount)
+async def msg_microloan_amount(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    try:
+        amount = int((message.text or "").strip())
+    except (ValueError, TypeError):
+        await message.answer("Ошибка! Введите целое число.")
+        return
+
+    if amount < 1000 or amount > 20000:
+        await message.answer("Ошибка! Сумма микрозайма должна быть от 1,000 до 20,000 монет.")
+        return
+
+    rate = round(KeyRateManager.get_rate() + 40.0, 1)
+    loan_mgr = LoanManager(user_id)
+    _, msg, _ = loan_mgr.take_loan("Микрозайм", amount, rate)
+
+    await state.clear()
+    await message.answer(msg, reply_markup=back_keyboard("loans"))
+
+
+@router.message(Form.credit_amount)
+async def msg_credit_amount(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    try:
+        amount = int((message.text or "").strip())
+    except (ValueError, TypeError):
+        await message.answer("Ошибка! Введите целое число.")
+        return
+
+    if amount < 20000 or amount > 50000:
+        await message.answer("Ошибка! Сумма обычного кредита должна быть от 20,000 до 50,000 монет.")
+        return
+
+    rate = round(KeyRateManager.get_rate() + 15.0, 1)
+    loan_mgr = LoanManager(user_id)
+    _, msg, _ = loan_mgr.take_loan("Кредит", amount, rate)
+
+    await state.clear()
+    await message.answer(msg, reply_markup=back_keyboard("loans"))
+
+
+@router.message(Form.mortgage_amount)
+async def msg_mortgage_amount(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    try:
+        amount = int((message.text or "").strip())
+    except (ValueError, TypeError):
+        await message.answer("Ошибка! Введите целое число.")
+        return
+
+    if amount <= 0 or amount > 100000:
+        await message.answer("Ошибка! Сумма ипотеки должна быть до 100,000 монет.")
+        return
+
+    rate = round(KeyRateManager.get_rate() + 3.0, 1)
+    loan_mgr = LoanManager(user_id)
+    _, msg, _ = loan_mgr.take_loan("Ипотека", amount, rate)
+
+    await state.clear()
+    await message.answer(msg, reply_markup=back_keyboard("loans"))
+
+
 @router.message(Form.casino_bet)
 async def msg_casino_bet(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -1002,11 +1256,12 @@ async def msg_fallback(message: Message, state: FSMContext):
     )
 
 
-# ---------- Фоновое обновление цен ----------
+# ---------- Фоновое обновление цен и ключевой ставки ----------
 
 async def update_prices_periodically():
     while True:
         await asyncio.sleep(30)
+        KeyRateManager.update_rate()  # Обновление ставки ЦБ
         for user_id in list(active_investments.keys()):
             try:
                 active_investments[user_id].update_prices()
