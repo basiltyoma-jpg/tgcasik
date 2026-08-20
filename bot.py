@@ -74,20 +74,6 @@ class BalanceManager:
         with open(f"{user_id}_{BALANCE_FILE}", "w", encoding="utf-8") as f:
             f.write(str(int(balance)))
 
-    @staticmethod
-    def check_and_grant_bonus(user_id):
-        balance = BalanceManager.load_balance(user_id)
-        inventory = Inventory(user_id)
-        items = inventory.load_inventory()
-
-        if balance < MIN_BET and not items:
-            bonus = MIN_BET
-            new_balance = balance + bonus
-            BalanceManager.save_balance(user_id, new_balance)
-            return True, bonus, new_balance
-
-        return False, 0, balance
-
 
 # ---------- Кредиты ----------
 
@@ -130,7 +116,7 @@ class LoanManager:
         balance = BalanceManager.load_balance(self.user_id)
         BalanceManager.save_balance(self.user_id, balance + amount)
 
-        return True, f"✅ Вы успешно взяли {loan_type.lower()} на {amount} монет تحت {interest_rate}%!\nК возврату: {total_due} монет.", total_due
+        return True, f"✅ Вы успешно взяли {loan_type.lower()} на {amount} монет под {interest_rate}%!\nК возврату: {total_due} монет.", total_due
 
     def pay_all_loans(self):
         loans = self.load_loans()
@@ -160,7 +146,7 @@ class LoanManager:
             total_debt = sum(item["total_due"] for item in loans)
             text += f"📜 **Ваши активные кредиты ({len(loans)}/3):**\n"
             for i, item in enumerate(loans, 1):
-                text += f"{i}. {item['type']} | Взято: {item['principal']} | Долог: {item['total_due']} ({item['rate']}%)\n"
+                text += f"{i}. {item['type']} | Взято: {item['principal']} | Долг: {item['total_due']} ({item['rate']}%)\n"
             text += f"\n💰 **Общий долг:** {total_debt} монет\n"
 
         return text
@@ -345,11 +331,8 @@ class CasinoGame:
         new_balance = balance + net_result
         BalanceManager.save_balance(self.user_id, new_balance)
 
-        granted, bonus, new_balance = BalanceManager.check_and_grant_bonus(self.user_id)
-        bonus_msg = f" 🎁 (Начислен бонус +{bonus} монет!)" if granted else ""
-
         prefix = "ALL IN! " if all_in else ""
-        return True, f"{prefix}{message} | Ставка: {bet} | Выигрыш: {win} | Баланс: {new_balance}{bonus_msg}", new_balance
+        return True, f"{prefix}{message} | Ставка: {bet} | Выигрыш: {win} | Баланс: {new_balance}", new_balance
 
     def play_all_in(self):
         balance = BalanceManager.load_balance(self.user_id)
@@ -388,10 +371,9 @@ class SlotMachineGame:
                 price = investment.current_prices.get(currency, self._currency_price(currency))
                 inventory.add_item(currency, amount, price)
             
-            granted, bonus, final_balance = BalanceManager.check_and_grant_bonus(self.user_id)
-            bonus_msg = f" 🎁 (Бонус +{bonus} монет!)" if granted else ""
+            final_balance = BalanceManager.load_balance(self.user_id)
             reward_text = " ".join(f"+{amount} {currency}" for currency, amount in amounts.items())
-            return True, f"🍀 🍀 🍀 Супердроп! {reward_text} | Баланс: {final_balance}{bonus_msg}"
+            return True, f"🍀 🍀 🍀 Супердроп! {reward_text} | Баланс: {final_balance}"
 
         counts = {symbol: reels.count(symbol) for symbol in self.SYMBOLS}
         reward = 0
@@ -415,10 +397,8 @@ class SlotMachineGame:
         else:
             result = "Мимо."
 
-        granted, bonus, final_balance = BalanceManager.check_and_grant_bonus(self.user_id)
-        bonus_msg = f" 🎁 (Бонус +{bonus} монет!)" if granted else ""
-
-        return True, f"{' '.join(reels)} {result} | Баланс: {final_balance}{bonus_msg}"
+        final_balance = BalanceManager.load_balance(self.user_id)
+        return True, f"{' '.join(reels)} {result} | Баланс: {final_balance}"
 
     @staticmethod
     def _currency_price(currency):
@@ -628,10 +608,7 @@ class BlackjackGame:
 
         BalanceManager.save_balance(self.user_id, balance)
 
-        granted, bonus, new_balance = BalanceManager.check_and_grant_bonus(self.user_id)
-        bonus_msg = f" 🎁 (Начислен бонус +{bonus} монет!)" if granted else ""
-
-        result_text += f" Баланс: {new_balance}{bonus_msg}"
+        result_text += f" Баланс: {balance}"
 
         game_text = self.get_game_text(show_dealer=True)
         return False, f"{game_text}\n{result_text}"
@@ -694,7 +671,6 @@ def casino_keyboard() -> InlineKeyboardMarkup:
 def casino_result_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎰 Еще раз", callback_data="casino")],
-        [InlineKeyboardButton(text="🔥 ALL IN", callback_data="casino_all_in")],
         [InlineKeyboardButton(text="⬅️ В меню", callback_data="menu")],
     ])
 
@@ -721,12 +697,9 @@ async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboar
         pass
 
 
-def balance_line(granted: bool, bonus_amount: int, balance: int) -> str:
+def balance_line(balance: int) -> str:
     key_rate = KeyRateManager.get_rate()
-    text = f"💰 Баланс: {balance} монет | 🏛 Ставка ЦБ: {key_rate}%"
-    if granted:
-        text += f" (+{bonus_amount} бонус)"
-    return text
+    return f"💰 Баланс: {balance} монет | 🏛 Ставка ЦБ: {key_rate}%"
 
 
 # ---------- Хэндлеры ----------
@@ -737,10 +710,10 @@ async def cmd_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
     get_investment(user_id)
 
-    granted, bonus_amount, new_balance = BalanceManager.check_and_grant_bonus(user_id)
+    balance = BalanceManager.load_balance(user_id)
 
     await message.answer(
-        f"🎮 Меню | {balance_line(granted, bonus_amount, new_balance)}",
+        f"🎮 Меню | {balance_line(balance)}",
         reply_markup=main_menu_keyboard(),
     )
 
@@ -752,11 +725,11 @@ async def cb_menu(query: CallbackQuery, state: FSMContext):
     user_id = query.from_user.id
     get_investment(user_id)
 
-    granted, bonus_amount, new_balance = BalanceManager.check_and_grant_bonus(user_id)
+    balance = BalanceManager.load_balance(user_id)
 
     await safe_edit(
         query,
-        f"🎮 Меню | {balance_line(granted, bonus_amount, new_balance)}",
+        f"🎮 Меню | {balance_line(balance)}",
         main_menu_keyboard(),
     )
 
@@ -962,9 +935,9 @@ async def cb_invest(query: CallbackQuery, state: FSMContext):
     user_id = query.from_user.id
     investment = get_investment(user_id)
 
-    granted, bonus_amount, new_balance = BalanceManager.check_and_grant_bonus(user_id)
+    balance = BalanceManager.load_balance(user_id)
 
-    text = f"{investment.get_prices_text()}\n{balance_line(granted, bonus_amount, new_balance)}\nВыберите валюту:"
+    text = f"{investment.get_prices_text()}\n{balance_line(balance)}\nВыберите валюту:"
 
     keyboard = []
     currencies = list(investment.currencies.keys())
@@ -1070,8 +1043,8 @@ async def cb_sell_all(query: CallbackQuery, state: FSMContext):
 async def cb_balance(query: CallbackQuery):
     await query.answer()
     user_id = query.from_user.id
-    granted, bonus_amount, new_balance = BalanceManager.check_and_grant_bonus(user_id)
-    await safe_edit(query, balance_line(granted, bonus_amount, new_balance), back_keyboard())
+    balance = BalanceManager.load_balance(user_id)
+    await safe_edit(query, balance_line(balance), back_keyboard())
 
 
 # ---------- Обработка текстовых сообщений по состояниям ----------
@@ -1245,13 +1218,10 @@ async def msg_sell_item(message: Message, state: FSMContext):
 async def msg_fallback(message: Message, state: FSMContext):
     user_id = message.from_user.id
     get_investment(user_id)
-    granted, bonus_amount, current_balance = BalanceManager.check_and_grant_bonus(user_id)
-
-    if granted:
-        await message.answer(f"🎁 Бонус +{bonus_amount}! Баланс: {current_balance}")
+    current_balance = BalanceManager.load_balance(user_id)
 
     await message.answer(
-        f"🎮 Меню | {balance_line(False, 0, current_balance)}",
+        f"🎮 Меню | {balance_line(current_balance)}",
         reply_markup=main_menu_keyboard(),
     )
 
