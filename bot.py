@@ -259,6 +259,74 @@ class CasinoGame:
         return self.play_round(balance, all_in=True)
 
 
+# ---------- Игровой автомат ----------
+
+class SlotMachineGame:
+    SPIN_COST = 500
+    SYMBOLS = ("💰", "💎", "🟢")
+    CURRENCIES = ("доллар", "фунт стерлингов", "биткоин")
+
+    def __init__(self, user_id):
+        self.user_id = user_id
+
+    def spin(self):
+        balance = BalanceManager.load_balance(self.user_id)
+        if balance < self.SPIN_COST:
+            return False, f"Недостаточно монет! Одна прокрутка стоит {self.SPIN_COST} монет.\nБаланс: {balance}"
+
+        BalanceManager.save_balance(self.user_id, balance - self.SPIN_COST)
+        reels = [random.choice(self.SYMBOLS) for _ in range(3)]
+        inventory = Inventory(self.user_id)
+
+        # Три символа клевера — супердроп с шансом 1%.
+        if random.randint(1, 100) == 1:
+            rewards = random.sample(self.CURRENCIES, k=random.randint(2, 3))
+            amounts = {currency: random.randint(1, 5) for currency in rewards}
+            for currency, amount in amounts.items():
+                inventory.add_item(currency, amount, self._currency_price(currency))
+            reward_text = "\n".join(
+                f"+{amount} {currency}" for currency, amount in amounts.items()
+            )
+            return True, (
+                "🍀 🍀 🍀\n\n"
+                "Получено наследство деда!\n"
+                f"{reward_text}\n\n"
+                f"Списано: {self.SPIN_COST} монет\n"
+                f"Баланс: {balance - self.SPIN_COST} монет"
+            )
+
+        counts = {symbol: reels.count(symbol) for symbol in self.SYMBOLS}
+        reward = 0
+        reward_currency = None
+        for symbol, currency in zip(self.SYMBOLS, self.CURRENCIES):
+            if counts[symbol] == 3:
+                reward = 3
+                reward_currency = currency
+                break
+            if counts[symbol] == 2:
+                reward = 1
+                reward_currency = currency
+                break
+
+        if reward_currency:
+            inventory.add_item(reward_currency, reward, self._currency_price(reward_currency))
+            result = f"🎉 Получено: {reward} {reward_currency}!"
+        elif len(set(reels)) == 3:
+            result = "Все символы разные — ничего не получено."
+        else:
+            result = "Попробуйте ещё раз!"
+
+        return True, (
+            f"{' '.join(reels)}\\n\\n{result}\\n"
+            f"Списано: {self.SPIN_COST} монет\\n"
+            f"Баланс: {balance - self.SPIN_COST} монет"
+        )
+
+    @staticmethod
+    def _currency_price(currency):
+        return {"доллар": 450, "фунт стерлингов": 800, "биткоин": 1250}[currency]
+
+
 # ---------- Инвестиции (валюты) ----------
 
 class Investment:
@@ -487,8 +555,7 @@ def get_investment(user_id) -> Investment:
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎰 Казино", callback_data="casino")],
-        [InlineKeyboardButton(text="♠️ Блэкджек", callback_data="blackjack")],
+        [InlineKeyboardButton(text="🎲 Лудка", callback_data="ludka")],
         [InlineKeyboardButton(text="📈 Инвестировать", callback_data="invest")],
         [InlineKeyboardButton(text="🎒 Мой инвентарь", callback_data="inventory")],
         [InlineKeyboardButton(text="💰 Продать валюту", callback_data="sell")],
@@ -499,6 +566,22 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 def back_keyboard(callback_data: str = "menu") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)],
+    ])
+
+
+def ludka_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎰 Казино", callback_data="casino")],
+        [InlineKeyboardButton(text="♠️ Блэкджек", callback_data="blackjack")],
+        [InlineKeyboardButton(text="🎰 Автомат — 500 монет", callback_data="slots")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")],
+    ])
+
+
+def slots_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎰 Крутить за 500 монет", callback_data="slots_spin")],
+        [InlineKeyboardButton(text="⬅️ В лудку", callback_data="ludka")],
     ])
 
 
@@ -554,6 +637,50 @@ async def cb_menu(query: CallbackQuery, state: FSMContext):
         f"🎮 Главное меню\n{balance_line(granted, bonus_amount, new_balance)}",
         main_menu_keyboard(),
     )
+
+
+@router.callback_query(F.data == "ludka")
+async def cb_ludka(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    await state.clear()
+    await safe_edit(query, "🎲 ЛУДКА\\n\\nВыберите игру:", ludka_keyboard())
+
+
+@router.callback_query(F.data == "slots")
+async def cb_slots(query: CallbackQuery, state: FSMContext):
+    await query.answer()
+    await state.clear()
+    balance = BalanceManager.load_balance(query.from_user.id)
+    await safe_edit(
+        query,
+        "🎰 ИГРОВОЙ АВТОМАТ\\n\\n"
+        "Символы: 💰 золото, 💎 алмаз, 🟢 изумруд\\n"
+        "Три одинаковых символа дают награду.\\n"
+        "Три разных символа — ничего.\\n"
+        "Шанс супердропа — 1%.\\n\\n"
+        f"Одна прокрутка: {SlotMachineGame.SPIN_COST} монет\\n"
+        f"Баланс: {balance} монет",
+        slots_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "slots_spin")
+async def cb_slots_spin(query: CallbackQuery):
+    await query.answer()
+    user_id = query.from_user.id
+    game = SlotMachineGame(user_id)
+    balance = BalanceManager.load_balance(user_id)
+    if balance < game.SPIN_COST:
+        await safe_edit(query, f"Недостаточно монет! Нужно {game.SPIN_COST}.\\nБаланс: {balance}", slots_keyboard())
+        return
+
+    for _ in range(8):
+        frame = " ".join(random.choice(game.SYMBOLS) for _ in range(3))
+        await safe_edit(query, f"🎰 {frame} 🎰\\n\\nПрокрутка...", slots_keyboard())
+        await asyncio.sleep(0.08)
+
+    _, result = game.spin()
+    await safe_edit(query, f"🎰 {result}", slots_keyboard())
 
 
 @router.callback_query(F.data == "casino")
