@@ -302,7 +302,8 @@ class CasinoGame:
             {"chance": 5, "multiplier": 10, "message": "Just lucky... no more"},
             {"chance": 15, "multiplier": 3, "message": "Неплохо"},
             {"chance": 35, "multiplier": 2, "message": "Сойдет"},
-            {"chance": 45, "multiplier": 0, "message": "Лох"},
+            {"chance": 40, "multiplier": 0.25, "message": "Лох"},
+            {"chance": 5, "multiplier": 0, "message": "Б...банкрот!"},
         ]
 
     def play_round(self, bet, all_in=False):
@@ -325,7 +326,7 @@ class CasinoGame:
                 selected_payout = payout
                 break
 
-        win = (bet // 4) if selected_payout["multiplier"] == 0 else (bet * selected_payout["multiplier"])
+        win = int(bet * selected_payout["multiplier"])
         message = selected_payout["message"]
         net_result = win - bet
         new_balance = balance + net_result
@@ -646,7 +647,7 @@ def loans_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚡ Микрозайм (1k - 20k)", callback_data="loan_micro")],
         [InlineKeyboardButton(text="💳 Кредит (20k - 50k)", callback_data="loan_credit")],
-        [InlineKeyboardButton(text="🏠 Ипотека (до 100k)", callback_data="loan_mortgage")],
+        [InlineKeyboardButton(text="🏠 Ипотека (50k - 100k)", callback_data="loan_mortgage")],
         [InlineKeyboardButton(text="❌ Закрыть все кредиты", callback_data="loan_pay_all")],
         [InlineKeyboardButton(text="⬅️ В меню", callback_data="menu")],
     ])
@@ -801,7 +802,7 @@ async def cb_loan_mortgage(query: CallbackQuery, state: FSMContext):
 
     await safe_edit(
         query,
-        f"🏠 **Ипотека**\nСумма: до 100,000 монет.\nТекущий процент: {rate}%\n\nВведите желаемую сумму:",
+        f"🏠 **Ипотека**\nСумма: от 50,000 до 100,000 монет.\nТекущий процент: {rate}%\n\nВведите желаемую сумму:",
         back_keyboard("loans"),
     )
 
@@ -1100,8 +1101,8 @@ async def msg_mortgage_amount(message: Message, state: FSMContext):
         await message.answer("Ошибка! Введите целое число.")
         return
 
-    if amount <= 0 or amount > 100000:
-        await message.answer("Ошибка! Сумма ипотеки должна быть до 100,000 монет.")
+    if amount < 50000 or amount > 100000:
+        await message.answer("Ошибка! Сумма ипотеки должна быть от 50,000 до 100,000 монет.")
         return
 
     rate = round(KeyRateManager.get_rate() + 3.0, 1)
