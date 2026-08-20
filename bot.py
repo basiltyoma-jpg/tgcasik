@@ -58,8 +58,9 @@ class BalanceManager:
     def check_and_grant_bonus(user_id):
         balance = BalanceManager.load_balance(user_id)
         inventory = Inventory(user_id)
+        items = inventory.load_inventory()
 
-        if balance < MIN_BET and not inventory.items:
+        if balance < MIN_BET and not items:
             bonus = MIN_BET
             new_balance = balance + bonus
             BalanceManager.save_balance(user_id, new_balance)
@@ -73,7 +74,7 @@ class BalanceManager:
 class Inventory:
     def __init__(self, user_id):
         self.user_id = user_id
-        self.items = self.load_inventory()
+        self.items = []
 
     def load_inventory(self):
         try:
@@ -107,6 +108,7 @@ class Inventory:
             json.dump(self.items, f, ensure_ascii=False, indent=2)
 
     def add_item(self, currency_name, amount, price):
+        self.items = self.load_inventory()
         for existing_item in self.items:
             if existing_item["name"] == currency_name and existing_item["purchase_price"] == price:
                 existing_item["amount"] += amount
@@ -125,6 +127,7 @@ class Inventory:
         return True
 
     def update_item_prices(self, market_prices):
+        self.items = self.load_inventory()
         updated = False
         current_time = datetime.now()
 
@@ -145,6 +148,7 @@ class Inventory:
         return updated
 
     def sell_item(self, item_index, amount_to_sell):
+        self.items = self.load_inventory()
         if item_index < 0 or item_index >= len(self.items):
             return None, 0, 0, 0
 
@@ -167,6 +171,7 @@ class Inventory:
         return item_name, total_sale, profit_loss, current_price
 
     def get_inventory_text(self):
+        self.items = self.load_inventory()
         if not self.items:
             return "📭 Ваш инвентарь пуст!"
 
@@ -256,14 +261,16 @@ class SlotMachineGame:
 
         BalanceManager.save_balance(self.user_id, balance - self.SPIN_COST)
         reels = [random.choice(self.SYMBOLS) for _ in range(3)]
-        inventory = Inventory(self.user_id)
+        
+        investment = get_investment(self.user_id)
+        inventory = investment.inventory
 
         if random.randint(1, 100) == 1:
             rewards = random.sample(self.CURRENCIES, k=random.randint(2, 3))
             amounts = {currency: random.randint(1, 5) for currency in rewards}
             for currency, amount in amounts.items():
-                inventory.add_item(currency, amount, self._currency_price(currency))
-            inventory.save_inventory()
+                price = investment.current_prices.get(currency, self._currency_price(currency))
+                inventory.add_item(currency, amount, price)
             
             granted, bonus, final_balance = BalanceManager.check_and_grant_bonus(self.user_id)
             bonus_msg = f" 🎁 (Бонус +{bonus} монет!)" if granted else ""
@@ -284,8 +291,8 @@ class SlotMachineGame:
                 break
 
         if reward_currency:
-            inventory.add_item(reward_currency, reward, self._currency_price(reward_currency))
-            inventory.save_inventory()
+            price = investment.current_prices.get(reward_currency, self._currency_price(reward_currency))
+            inventory.add_item(reward_currency, reward, price)
             result = f"🎉 +{reward} {reward_currency}!"
         elif len(set(reels)) == 3:
             result = "Пусто."
@@ -775,13 +782,14 @@ async def cb_sell(query: CallbackQuery, state: FSMContext):
     user_id = query.from_user.id
     investment = get_investment(user_id)
     inventory = investment.inventory
+    items = inventory.load_inventory()
 
-    if not inventory.items:
+    if not items:
         await safe_edit(query, "📭 Ваш инвентарь пуст!", back_keyboard())
         return
 
     text = "💰 ПРОДАЖА:\n"
-    for i, item in enumerate(inventory.items, 1):
+    for i, item in enumerate(items, 1):
         profit_loss = item["current_price"] - item["purchase_price"]
         arrow = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➡️"
         text += f"{i}. {item['name'].upper()} | {item['amount']} ед. | Куплено: {item['purchase_price']} | Текущая: {item['current_price']} {arrow}\n"
