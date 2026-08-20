@@ -174,7 +174,7 @@ class Inventory:
         if not self.items:
             return "📭 Ваш инвентарь пуст!"
 
-        text = "🎒 ВАШ ИНВЕНТАРЬ:\n\n"
+        text = "🎒 ВАШ ИНВЕНТАРЬ: "
 
         for i, item in enumerate(self.items, 1):
             current_value = item["amount"] * item["current_price"]
@@ -185,12 +185,12 @@ class Inventory:
 
             arrow = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➡️"
 
-            text += f"{i}. {item['name'].upper()}\n"
-            text += f"   Количество: {item['amount']} ед.\n"
-            text += f"   Цена покупки: {item['purchase_price']} монет\n"
-            text += f"   Текущая цена: {item['current_price']} монет\n"
-            text += f"   Прибыль/убыток: {arrow} {profit_loss:+d} ({profit_percent:+d}%)\n"
-            text += f"   Общая стоимость: {current_value} монет\n\n"
+            text += f"{i}. {item['name'].upper()} "
+            text += f"   Количество: {item['amount']} ед. "
+            text += f"   Цена покупки: {item['purchase_price']} монет "
+            text += f"   Текущая цена: {item['current_price']} монет "
+            text += f"   Прибыль/убыток: {arrow} {profit_loss:+d} ({profit_percent:+d}%) "
+            text += f"   Общая стоимость: {current_value} монет "
 
         return text
 
@@ -234,8 +234,8 @@ class CasinoGame:
                 BalanceManager.save_balance(self.user_id, new_balance)
                 prefix = "ALL IN! " if all_in else ""
                 return True, (
-                    f"{prefix}{message}\nСтавка: {bet}\nВыигрыш: {win}\n"
-                    f"Чистая прибыль: {'+' if net_result >= 0 else ''}{net_result}\n"
+                    f"{prefix}{message} Ставка: {bet} Выигрыш: {win} "
+                    f"Чистая прибыль: {'+' if net_result >= 0 else ''}{net_result} "
                     f"Текущий баланс: {new_balance}"
                 ), new_balance
 
@@ -245,8 +245,8 @@ class CasinoGame:
         BalanceManager.save_balance(self.user_id, new_balance)
         prefix = "ALL IN! " if all_in else ""
         return True, (
-            f"{prefix}Лох\nСтавка: {bet}\nВыигрыш: {win}\n"
-            f"Чистая прибыль: {'+' if net_result >= 0 else ''}{net_result}\n"
+            f"{prefix}Лох Ставка: {bet} Выигрыш: {win} "
+            f"Чистая прибыль: {'+' if net_result >= 0 else ''}{net_result} "
             f"Текущий баланс: {new_balance}"
         ), new_balance
 
@@ -276,7 +276,7 @@ class SlotMachineGame:
     def spin(self):
         balance = BalanceManager.load_balance(self.user_id)
         if balance < self.SPIN_COST:
-            return False, f"Недостаточно монет! Одна прокрутка стоит {self.SPIN_COST} монет.\nБаланс: {balance}"
+            return False, f"Недостаточно монет! Одна прокрутка стоит {self.SPIN_COST} монет. Баланс: {balance}"
 
         BalanceManager.save_balance(self.user_id, balance - self.SPIN_COST)
         reels = [random.choice(self.SYMBOLS) for _ in range(3)]
@@ -288,14 +288,15 @@ class SlotMachineGame:
             amounts = {currency: random.randint(1, 5) for currency in rewards}
             for currency, amount in amounts.items():
                 inventory.add_item(currency, amount, self._currency_price(currency))
-            reward_text = "\n".join(
+            inventory.save_inventory()
+            reward_text = " ".join(
                 f"+{amount} {currency}" for currency, amount in amounts.items()
             )
             return True, (
-                "🍀 🍀 🍀\n\n"
-                "Получено наследство деда!\n"
-                f"{reward_text}\n\n"
-                f"Списано: {self.SPIN_COST} монет\n"
+                "🍀 🍀 🍀 "
+                "Получено наследство деда! "
+                f"{reward_text} "
+                f"Списано: {self.SPIN_COST} монет "
                 f"Баланс: {balance - self.SPIN_COST} монет"
             )
 
@@ -314,6 +315,7 @@ class SlotMachineGame:
 
         if reward_currency:
             inventory.add_item(reward_currency, reward, self._currency_price(reward_currency))
+            inventory.save_inventory()
             result = f"🎉 Получено: {reward} {reward_currency}!"
         elif len(set(reels)) == 3:
             result = "Все символы разные — ничего не получено."
@@ -321,8 +323,8 @@ class SlotMachineGame:
             result = "Попробуйте ещё раз!"
 
         return True, (
-            f"{' '.join(reels)}\n\n{result}\n"
-            f"Списано: {self.SPIN_COST} монет\n"
+            f"{' '.join(reels)} {result} "
+            f"Списано: {self.SPIN_COST} монет "
             f"Баланс: {balance - self.SPIN_COST} монет"
         )
 
@@ -369,7 +371,7 @@ class Investment:
         return self.current_prices
 
     def get_prices_text(self):
-        text = "📈 ВАЛЮТНЫЙ РЫНОК:\n\n"
+        text = "📈 ВАЛЮТНЫЙ РЫНОК: "
         for currency in self.currencies:
             price = self.current_prices[currency]
             change = ""
@@ -379,8 +381,8 @@ class Investment:
                 percent = (diff * 100 // prev) if prev > 0 else 0
                 arrow = "📈" if diff > 0 else "📉" if diff < 0 else "➡️"
                 change = f" {arrow} {diff:+d} ({percent:+d}%)"
-            text += f"{currency.upper()}\n"
-            text += f"Цена: {price} монет{change}\n\n"
+            text += f"{currency.upper()} "
+            text += f"Цена: {price} монет{change} "
         return text
 
     def invest(self, currency_index, amount):
@@ -407,8 +409,8 @@ class Investment:
         self.inventory.add_item(selected_currency, amount, currency_price)
 
         return True, (
-            f"✅ Куплено {amount} ед. {selected_currency} за {total_cost} монет\n"
-            f"Текущая цена: {currency_price} монет\nБаланс: {balance}"
+            f"✅ Куплено {amount} ед. {selected_currency} за {total_cost} монет "
+            f"Текущая цена: {currency_price} монет Баланс: {balance}"
         ), balance
 
 
@@ -448,27 +450,27 @@ class BlackjackGame:
         return value
 
     def get_game_text(self, show_dealer=False):
-        text = "♠️ БЛЭКДЖЕК\n\n"
+        text = "♠️ БЛЭКДЖЕК "
 
         if show_dealer:
             dealer_value = self.hand_value(self.dealer_hand)
             dealer_cards = " ".join([f"{r}{s}" for r, s in self.dealer_hand])
-            text += f"Дилер: {dealer_cards}\n"
-            text += f"Очки дилера: {dealer_value}\n\n"
+            text += f"Дилер: {dealer_cards} "
+            text += f"Очки дилера: {dealer_value} "
         else:
             first_card = f"{self.dealer_hand[0][0]}{self.dealer_hand[0][1]}"
-            text += f"Дилер: {first_card}, [скрытая]\n\n"
+            text += f"Дилер: {first_card}, [скрытая] "
 
         player_value = self.hand_value(self.player_hand)
         player_cards = " ".join([f"{r}{s}" for r, s in self.player_hand])
-        text += f"Твои карты: {player_cards}\n"
-        text += f"Твои очки: {player_value}\n\n"
+        text += f"Твои карты: {player_cards} "
+        text += f"Твои очки: {player_value} "
 
         if self.bet > 0:
-            text += f"Ставка: {self.bet} монет\n"
+            text += f"Ставка: {self.bet} монет "
 
         if not show_dealer and self.game_active:
-            text += "\nВыберите действие:"
+            text += " Выберите действие:"
 
         return text
 
@@ -537,18 +539,18 @@ class BlackjackGame:
 
         if win is None:
             balance += self.bet
-            result_text = f"🤝 Ничья! Ставка возвращена.\nБаланс: {balance}"
+            result_text = f"🤝 Ничья! Ставка возвращена. Баланс: {balance}"
         elif win:
             winnings = self.bet * 2
             balance += winnings
-            result_text = f"🎉 Поздравляем! Вы выиграли {winnings} монет!\nБаланс: {balance}"
+            result_text = f"🎉 Поздравляем! Вы выиграли {winnings} монет! Баланс: {balance}"
         else:
-            result_text = f"😢 Вы проиграли {self.bet} монет.\nБаланс: {balance}"
+            result_text = f"😢 Вы проиграли {self.bet} монет. Баланс: {balance}"
 
         BalanceManager.save_balance(self.user_id, balance)
 
         game_text = self.get_game_text(show_dealer=True)
-        return False, f"{game_text}\n{result_text}"
+        return False, f"{game_text} {result_text}"
 
 
 # ---------- Глобальное состояние ----------
@@ -612,7 +614,7 @@ async def safe_edit(query: CallbackQuery, text: str, reply_markup: InlineKeyboar
 def balance_line(granted: bool, bonus_amount: int, balance: int) -> str:
     text = f"💰 Ваш баланс: {balance} монет"
     if granted:
-        text += f"\n🎁 Вам начислен бонус {bonus_amount} монет (баланс < {MIN_BET} и пустой инвентарь)"
+        text += f" 🎁 Вам начислен бонус {bonus_amount} монет (баланс < {MIN_BET} и пустой инвентарь)"
     return text
 
 
@@ -627,7 +629,7 @@ async def cmd_start(message: Message, state: FSMContext):
     granted, bonus_amount, new_balance = BalanceManager.check_and_grant_bonus(user_id)
 
     await message.answer(
-        f"🎮 Казино (сварщикам вход воспрещен!)\n{balance_line(granted, bonus_amount, new_balance)}",
+        f"🎮 Казино (сварщикам вход воспрещен!) {balance_line(granted, bonus_amount, new_balance)}",
         reply_markup=main_menu_keyboard(),
     )
 
@@ -643,7 +645,7 @@ async def cb_menu(query: CallbackQuery, state: FSMContext):
 
     await safe_edit(
         query,
-        f"🎮 Главное меню\n{balance_line(granted, bonus_amount, new_balance)}",
+        f"🎮 Главное меню {balance_line(granted, bonus_amount, new_balance)}",
         main_menu_keyboard(),
     )
 
@@ -652,7 +654,7 @@ async def cb_menu(query: CallbackQuery, state: FSMContext):
 async def cb_ludka(query: CallbackQuery, state: FSMContext):
     await query.answer()
     await state.clear()
-    await safe_edit(query, "🎲 ЛУДКА\\n\\nВыберите игру:", ludka_keyboard())
+    await safe_edit(query, "🎲 ЛУДКА  Выберите игру:", ludka_keyboard())
 
 
 @router.callback_query(F.data == "slots")
@@ -662,12 +664,12 @@ async def cb_slots(query: CallbackQuery, state: FSMContext):
     balance = BalanceManager.load_balance(query.from_user.id)
     await safe_edit(
         query,
-        "🎰 ИГРОВОЙ АВТОМАТ\\n\\n"
-        "Символы: 💰 золото, 💎 алмаз, 🟢 изумруд\\n"
-        "Три одинаковых символа дают награду.\\n"
-        "Три разных символа — ничего.\\n"
-        "Шанс супердропа — 1%.\\n\\n"
-        f"Одна прокрутка: {SlotMachineGame.SPIN_COST} монет\\n"
+        "🎰 ИГРОВОЙ АВТОМАТ  "
+        "Символы: 💰 золото, 💎 алмаз, 🟢 изумруд "
+        "Три одинаковых символа дают награду. "
+        "Три разных символа — ничего. "
+        "Шанс супердропа — 1%.  "
+        f"Одна прокрутка: {SlotMachineGame.SPIN_COST} монет "
         f"Баланс: {balance} монет",
         slots_keyboard(),
     )
@@ -680,13 +682,13 @@ async def cb_slots_spin(query: CallbackQuery):
     game = SlotMachineGame(user_id)
     balance = BalanceManager.load_balance(user_id)
     if balance < game.SPIN_COST:
-        await safe_edit(query, f"Недостаточно монет! Нужно {game.SPIN_COST}.\\nБаланс: {balance}", slots_keyboard())
+        await safe_edit(query, f"Недостаточно монет! Нужно {game.SPIN_COST}. Баланс: {balance}", slots_keyboard())
         return
 
-    for _ in range(8):
+    for _ in range(18):
         frame = " ".join(random.choice(game.SYMBOLS) for _ in range(3))
-        await safe_edit(query, f"🎰 {frame} 🎰\\n\\nПрокрутка...", slots_keyboard())
-        await asyncio.sleep(0.08)
+        await safe_edit(query, f"🎰 {frame} 🎰  Прокрутка...", slots_keyboard())
+        await asyncio.sleep(0.12)
 
     _, result = game.spin()
     await safe_edit(query, f"🎰 {result}", slots_keyboard())
@@ -698,7 +700,7 @@ async def cb_casino(query: CallbackQuery, state: FSMContext):
     await state.set_state(Form.casino_bet)
     await safe_edit(
         query,
-        f"🎰 КАЗИНО\nМинимальная ставка: {MIN_BET} монет\n\nВведите сумму ставки:",
+        f"🎰 КАЗИНО Минимальная ставка: {MIN_BET} монет Введите сумму ставки:",
         back_keyboard(),
     )
 
@@ -715,7 +717,7 @@ async def cb_blackjack(query: CallbackQuery, state: FSMContext):
         await state.set_state(Form.blackjack_bet)
         await safe_edit(
             query,
-            f"♠️ БЛЭКДЖЕК\nМинимальная ставка: {MIN_BET} монет\n\nВведите сумму ставки:",
+            f"♠️ БЛЭКДЖЕК Минимальная ставка: {MIN_BET} монет Введите сумму ставки:",
             back_keyboard(),
         )
 
@@ -765,7 +767,7 @@ async def cb_invest(query: CallbackQuery, state: FSMContext):
     granted, bonus_amount, new_balance = BalanceManager.check_and_grant_bonus(user_id)
 
     text = investment.get_prices_text()
-    text += balance_line(granted, bonus_amount, new_balance) + "\n\n"
+    text += balance_line(granted, bonus_amount, new_balance) + " "
     text += "Выберите валюту для инвестиции:"
 
     keyboard = []
@@ -800,8 +802,8 @@ async def cb_invest_currency(query: CallbackQuery, state: FSMContext):
 
     await safe_edit(
         query,
-        f"📊 {selected_currency.upper()}\n"
-        f"Текущая цена: {price} монет\n\n"
+        f"📊 {selected_currency.upper()} "
+        f"Текущая цена: {price} монет "
         f"Введите количество для покупки:",
         back_keyboard("invest"),
     )
@@ -826,13 +828,13 @@ async def cb_sell(query: CallbackQuery, state: FSMContext):
         await safe_edit(query, "📭 Ваш инвентарь пуст!", back_keyboard())
         return
 
-    text = "💰 ПРОДАЖА ВАЛЮТЫ:\n\n"
+    text = "💰 ПРОДАЖА ВАЛЮТЫ: "
     for i, item in enumerate(inventory.items, 1):
         profit_loss = item["current_price"] - item["purchase_price"]
         arrow = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➡️"
-        text += f"{i}. {item['name'].upper()} - {item['amount']} ед.\n"
-        text += f"   Куплено по: {item['purchase_price']} монет\n"
-        text += f"   Текущая цена: {item['current_price']} монет {arrow}\n\n"
+        text += f"{i}. {item['name'].upper()} - {item['amount']} ед. "
+        text += f"   Куплено по: {item['purchase_price']} монет "
+        text += f"   Текущая цена: {item['current_price']} монет {arrow} "
 
     text += "Введите номер позиции и количество через пробел (например: 1 10):"
 
@@ -944,11 +946,11 @@ async def msg_sell_item(message: Message, state: FSMContext):
 
         arrow = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➡️"
 
-        result_message = "✅ Продажа завершена!\n"
-        result_message += f"Продано: {amount_to_sell} ед. {item_name}\n"
-        result_message += f"Текущая цена: {current_price} монет\n"
-        result_message += f"Получено: {total_sale} монет\n"
-        result_message += f"Прибыль/убыток: {arrow} {profit_loss:+d} монет\n"
+        result_message = "✅ Продажа завершена! "
+        result_message += f"Продано: {amount_to_sell} ед. {item_name} "
+        result_message += f"Текущая цена: {current_price} монет "
+        result_message += f"Получено: {total_sale} монет "
+        result_message += f"Прибыль/убыток: {arrow} {profit_loss:+d} монет "
         result_message += f"Новый баланс: {new_balance} монет"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -971,12 +973,12 @@ async def msg_fallback(message: Message, state: FSMContext):
 
     if granted:
         await message.answer(
-            f"🎁 Вам начислен бонус {bonus_amount} монет (баланс < {MIN_BET} и пустой инвентарь)\n"
+            f"🎁 Вам начислен бонус {bonus_amount} монет (баланс < {MIN_BET} и пустой инвентарь) "
             f"💰 Новый баланс: {current_balance} монет"
         )
 
     await message.answer(
-        f"🎮 Казино (сварщикам вход воспрещен!)\n{balance_line(False, 0, current_balance)}",
+        f"🎮 Казино (сварщикам вход воспрещен!) {balance_line(False, 0, current_balance)}",
         reply_markup=main_menu_keyboard(),
     )
 
