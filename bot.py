@@ -23,7 +23,6 @@ if not TOKEN:
 
 BALANCE_FILE = "balance.txt"
 INVENTORY_FILE = "inventory.json"
-BONUS_FILE = "bonus_received.txt"
 MIN_BET = 50
 DEFAULT_BALANCE = 100
 
@@ -59,13 +58,11 @@ class BalanceManager:
     def check_and_grant_bonus(user_id):
         balance = BalanceManager.load_balance(user_id)
         inventory = Inventory(user_id)
-        bonus_filename = f"{user_id}_{BONUS_FILE}"
 
-        if balance < MIN_BET and not inventory.items and not Path(bonus_filename).exists():
+        if balance < MIN_BET and not inventory.items:
             bonus = MIN_BET
             new_balance = balance + bonus
             BalanceManager.save_balance(user_id, new_balance)
-            Path(bonus_filename).write_text("1", encoding="utf-8")
             return True, bonus, new_balance
 
         return False, 0, balance
@@ -213,23 +210,25 @@ class CasinoGame:
 
         chance = random.randint(1, 100)
         cumulative_chance = 0
+        selected_payout = self.payouts[-1]
+
         for payout in self.payouts:
             cumulative_chance += payout["chance"]
             if chance <= cumulative_chance:
-                win = (bet // 4) if payout["multiplier"] == 0 else (bet * payout["multiplier"])
-                message = payout["message"]
-                net_result = win - bet
-                new_balance = balance + net_result
-                BalanceManager.save_balance(self.user_id, new_balance)
-                prefix = "ALL IN! " if all_in else ""
-                return True, f"{prefix}{message} | Ставка: {bet} | Выигрыш: {win} | Баланс: {new_balance}", new_balance
+                selected_payout = payout
+                break
 
-        win = bet // 4
+        win = (bet // 4) if selected_payout["multiplier"] == 0 else (bet * selected_payout["multiplier"])
+        message = selected_payout["message"]
         net_result = win - bet
         new_balance = balance + net_result
         BalanceManager.save_balance(self.user_id, new_balance)
+
+        granted, bonus, new_balance = BalanceManager.check_and_grant_bonus(self.user_id)
+        bonus_msg = f" 🎁 (Начислен бонус +{bonus} монет!)" if granted else ""
+
         prefix = "ALL IN! " if all_in else ""
-        return True, f"{prefix}Лох | Ставка: {bet} | Выигрыш: {win} | Баланс: {new_balance}", new_balance
+        return True, f"{prefix}{message} | Ставка: {bet} | Выигрыш: {win} | Баланс: {new_balance}{bonus_msg}", new_balance
 
     def play_all_in(self):
         balance = BalanceManager.load_balance(self.user_id)
@@ -265,8 +264,11 @@ class SlotMachineGame:
             for currency, amount in amounts.items():
                 inventory.add_item(currency, amount, self._currency_price(currency))
             inventory.save_inventory()
+            
+            granted, bonus, final_balance = BalanceManager.check_and_grant_bonus(self.user_id)
+            bonus_msg = f" 🎁 (Бонус +{bonus} монет!)" if granted else ""
             reward_text = " ".join(f"+{amount} {currency}" for currency, amount in amounts.items())
-            return True, f"🍀 🍀 🍀 Супердроп! {reward_text} | Баланс: {balance - self.SPIN_COST}"
+            return True, f"🍀 🍀 🍀 Супердроп! {reward_text} | Баланс: {final_balance}{bonus_msg}"
 
         counts = {symbol: reels.count(symbol) for symbol in self.SYMBOLS}
         reward = 0
@@ -290,7 +292,10 @@ class SlotMachineGame:
         else:
             result = "Мимо."
 
-        return True, f"{' '.join(reels)} {result} | Баланс: {balance - self.SPIN_COST}"
+        granted, bonus, final_balance = BalanceManager.check_and_grant_bonus(self.user_id)
+        bonus_msg = f" 🎁 (Бонус +{bonus} монет!)" if granted else ""
+
+        return True, f"{' '.join(reels)} {result} | Баланс: {final_balance}{bonus_msg}"
 
     @staticmethod
     def _currency_price(currency):
@@ -490,15 +495,21 @@ class BlackjackGame:
 
         if win is None:
             balance += self.bet
-            result_text = f"🤝 Ничья! Возврат. Баланс: {balance}"
+            result_text = f"🤝 Ничья! Возврат."
         elif win:
             winnings = self.bet * 2
             balance += winnings
-            result_text = f"🎉 Выигрыш: {winnings}! Баланс: {balance}"
+            result_text = f"🎉 Выигрыш: {winnings}!"
         else:
-            result_text = f"😢 Проигрыш: {self.bet}. Баланс: {balance}"
+            result_text = f"😢 Проигрыш: {self.bet}."
 
         BalanceManager.save_balance(self.user_id, balance)
+
+        granted, bonus, new_balance = BalanceManager.check_and_grant_bonus(self.user_id)
+        bonus_msg = f" 🎁 (Начислен бонус +{bonus} монет!)" if granted else ""
+
+        result_text += f" Баланс: {new_balance}{bonus_msg}"
+
         game_text = self.get_game_text(show_dealer=True)
         return False, f"{game_text}\n{result_text}"
 
