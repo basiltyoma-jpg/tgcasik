@@ -317,8 +317,8 @@ class SlotMachineGame:
             result = "Попробуйте ещё раз!"
 
         return True, (
-            f"{' '.join(reels)}\\n\\n{result}\\n"
-            f"Списано: {self.SPIN_COST} монет\\n"
+            f"{' '.join(reels)}\n\n{result}\n"
+            f"Списано: {self.SPIN_COST} монет\n"
             f"Баланс: {balance - self.SPIN_COST} монет"
         )
 
@@ -572,7 +572,7 @@ def ludka_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎰 Казино", callback_data="casino")],
         [InlineKeyboardButton(text="♠️ Блэкджек", callback_data="blackjack")],
-        [InlineKeyboardButton(text="🎰 Автомат — 500 монет", callback_data="slots")],
+        [InlineKeyboardButton(text="🎰 Игровой автомат", callback_data="slots")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")],
     ])
 
