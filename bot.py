@@ -23,6 +23,7 @@ if not TOKEN:
 
 BALANCE_FILE = "balance.txt"
 INVENTORY_FILE = "inventory.json"
+BONUS_FILE = "bonus_received.txt"
 MIN_BET = 50
 DEFAULT_BALANCE = 100
 
@@ -58,11 +59,14 @@ class BalanceManager:
     def check_and_grant_bonus(user_id):
         balance = BalanceManager.load_balance(user_id)
         inventory = Inventory(user_id)
+        bonus_filename = f"{user_id}_{BONUS_FILE}"
 
-        if balance < MIN_BET and not inventory.items:
+        # Бонус выдаётся только один раз.
+        if balance < MIN_BET and not inventory.items and not Path(bonus_filename).exists():
             bonus = MIN_BET
             new_balance = balance + bonus
             BalanceManager.save_balance(user_id, new_balance)
+            Path(bonus_filename).write_text("1", encoding="utf-8")
             return True, bonus, new_balance
 
         return False, 0, balance
@@ -497,6 +501,9 @@ class BlackjackGame:
         return True, self.get_game_text()
 
     def hit(self):
+        if not self.game_active:
+            return False, "Игра уже завершена!"
+
         self.player_hand.append(self.deck.pop())
         player_value = self.hand_value(self.player_hand)
 
@@ -506,6 +513,9 @@ class BlackjackGame:
         return True, self.get_game_text()
 
     def stand(self):
+        if not self.game_active:
+            return False, "Игра уже завершена!"
+
         while self.hand_value(self.dealer_hand) < 17:
             self.dealer_hand.append(self.deck.pop())
 
@@ -846,13 +856,14 @@ async def cb_balance(query: CallbackQuery):
 async def msg_casino_bet(message: Message, state: FSMContext):
     user_id = message.from_user.id
     try:
-        bet = int(float(message.text))
+        bet = int(float((message.text or "").strip()))
     except (ValueError, TypeError):
         await message.answer("Введите корректное число!")
         return
 
     casino = CasinoGame(user_id)
     _, result_message, _ = casino.play_round(bet)
+    await state.clear()
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎰 Сыграть еще", callback_data="casino")],
@@ -866,7 +877,7 @@ async def msg_casino_bet(message: Message, state: FSMContext):
 async def msg_blackjack_bet(message: Message, state: FSMContext):
     user_id = message.from_user.id
     try:
-        bet = int(float(message.text))
+        bet = int(float((message.text or "").strip()))
     except (ValueError, TypeError):
         await message.answer("Введите корректное число!")
         return
@@ -886,7 +897,7 @@ async def msg_blackjack_bet(message: Message, state: FSMContext):
 async def msg_invest_amount(message: Message, state: FSMContext):
     user_id = message.from_user.id
     try:
-        amount = int(message.text)
+        amount = int((message.text or "").strip())
     except (ValueError, TypeError):
         await message.answer("Введите корректное число!")
         return
@@ -896,6 +907,7 @@ async def msg_invest_amount(message: Message, state: FSMContext):
 
     investment = get_investment(user_id)
     _, result_message, _ = investment.invest(currency_index, amount)
+    await state.clear()
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📈 Инвестировать еще", callback_data="invest")],
@@ -944,6 +956,7 @@ async def msg_sell_item(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="⬅️ В меню", callback_data="menu")],
         ])
 
+        await state.clear()
         await message.answer(result_message, reply_markup=keyboard)
     else:
         await message.answer("Ошибка продажи! Проверьте номер и количество.")
