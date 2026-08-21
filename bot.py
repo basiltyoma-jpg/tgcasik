@@ -361,20 +361,22 @@ class SlotMachineGame:
 
         BalanceManager.save_balance(self.user_id, balance - self.SPIN_COST)
         reels = [random.choice(self.SYMBOLS) for _ in range(3)]
-        
+        reels_str = " ".join(reels)
+
         investment = get_investment(self.user_id)
         inventory = investment.inventory
 
+        # 1% шанс Супердропа
         if random.randint(1, 100) == 1:
             rewards = random.sample(self.CURRENCIES, k=random.randint(2, 3))
             amounts = {currency: random.randint(1, 5) for currency in rewards}
             for currency, amount in amounts.items():
                 price = investment.current_prices.get(currency, self._currency_price(currency))
                 inventory.add_item(currency, amount, price)
-            
+
             final_balance = BalanceManager.load_balance(self.user_id)
             reward_text = " ".join(f"+{amount} {currency}" for currency, amount in amounts.items())
-            return True, f"🍀 🍀 🍀 Супердроп! {reward_text} | Баланс: {final_balance}"
+            return True, f"| {reels_str} |\n🍀 🍀 🍀 Супердроп! {reward_text} | Баланс: {final_balance}"
 
         counts = {symbol: reels.count(symbol) for symbol in self.SYMBOLS}
         reward = 0
@@ -399,7 +401,7 @@ class SlotMachineGame:
             result = "Мимо."
 
         final_balance = BalanceManager.load_balance(self.user_id)
-        return True, f"{' '.join(reels)} {result} | Баланс: {final_balance}"
+        return True, f"| {reels_str} |\n{result} | Баланс: {final_balance}"
 
     @staticmethod
     def _currency_price(currency):
@@ -619,6 +621,7 @@ class BlackjackGame:
 
 active_investments = {}
 blackjack_games = {}
+spinning_users = set()  # Блокировка повторных нажатий в автомате
 
 
 def get_investment(user_id) -> Investment:
@@ -757,7 +760,7 @@ async def cb_loan_micro(query: CallbackQuery, state: FSMContext):
         await safe_edit(query, "🛑 У вас уже 3 активных кредита! Погасите имеющиеся, чтобы взять новый.", back_keyboard("loans"))
         return
 
-    rate = round(KeyRateManager.get_rate() + 40.0, 1)  # Высокие %
+    rate = round(KeyRateManager.get_rate() + 40.0, 1)
     await state.set_state(Form.microloan_amount)
 
     await safe_edit(
@@ -777,7 +780,7 @@ async def cb_loan_credit(query: CallbackQuery, state: FSMContext):
         await safe_edit(query, "🛑 У вас уже 3 активных кредита! Погасите имеющиеся, чтобы взять новый.", back_keyboard("loans"))
         return
 
-    rate = round(KeyRateManager.get_rate() + 15.0, 1)  # Средние %
+    rate = round(KeyRateManager.get_rate() + 15.0, 1)
     await state.set_state(Form.credit_amount)
 
     await safe_edit(
@@ -797,7 +800,7 @@ async def cb_loan_mortgage(query: CallbackQuery, state: FSMContext):
         await safe_edit(query, "🛑 У вас уже 3 активных кредита! Погасите имеющиеся, чтобы взять новый.", back_keyboard("loans"))
         return
 
-    rate = round(KeyRateManager.get_rate() + 3.0, 1)  # Низкие %
+    rate = round(KeyRateManager.get_rate() + 3.0, 1)
     await state.set_state(Form.mortgage_amount)
 
     await safe_edit(
@@ -831,29 +834,49 @@ async def cb_slots(query: CallbackQuery, state: FSMContext):
     balance = BalanceManager.load_balance(query.from_user.id)
     await safe_edit(
         query,
-        f"🎰 ИГРОВОЙ АВТОМАТ\nСтоимость: {SlotMachineGame.SPIN_COST}\nБаланс: {balance}",
+        f"🎰 ИГРОВОЙ АВТОМАТ\nСтоимость спина: {SlotMachineGame.SPIN_COST} монет\nВаш баланс: {balance} монет",
         slots_keyboard(),
     )
 
 
 @router.callback_query(F.data == "slots_spin")
 async def cb_slots_spin(query: CallbackQuery):
-    await query.answer()
     user_id = query.from_user.id
-    game = SlotMachineGame(user_id)
-    balance = BalanceManager.load_balance(user_id)
-    
-    if balance < game.SPIN_COST:
-        await safe_edit(query, f"Недостаточно монет! Стоимость: {game.SPIN_COST}", slots_keyboard())
+
+    if user_id in spinning_users:
+        await query.answer("🎰 Барабаны уже крутятся!", show_alert=False)
         return
 
-    for _ in range(18):
-        frame = " ".join(random.choice(game.SYMBOLS) for _ in range(3))
-        await safe_edit(query, f"🎰 {frame} 🎰", slots_keyboard())
-        await asyncio.sleep(0.12)
+    balance = BalanceManager.load_balance(user_id)
+    if balance < SlotMachineGame.SPIN_COST:
+        await query.answer("❌ Недостаточно монет!", show_alert=True)
+        await safe_edit(
+            query,
+            f"🎰 ИГРОВОЙ АВТОМАТ\nСтоимость: {SlotMachineGame.SPIN_COST} монет.\nНедостаточно средств! Баланс: {balance}",
+            slots_keyboard(),
+        )
+        return
 
-    _, result = game.spin()
-    await safe_edit(query, f"🎰 {result}", slots_keyboard())
+    await query.answer()
+    spinning_users.add(user_id)
+
+    try:
+        game = SlotMachineGame(user_id)
+        symbols = SlotMachineGame.SYMBOLS
+
+        # Плавная анимация остановки барабанов без перегрузки API
+        for i in range(1, 4):
+            reel1 = random.choice(symbols) if i < 1 else "❓"
+            reel2 = random.choice(symbols) if i < 2 else "❓"
+            reel3 = random.choice(symbols) if i < 3 else "❓"
+            await safe_edit(query, f"🎰 | {reel1} | {reel2} | {reel3} |\n\nКрутим барабаны...", None)
+            await asyncio.sleep(0.4)
+
+        _, result = game.spin()
+        await safe_edit(query, f"🎰 {result}", slots_keyboard())
+
+    finally:
+        spinning_users.discard(user_id)
 
 
 @router.callback_query(F.data == "casino")
@@ -1177,7 +1200,7 @@ async def msg_invest_amount(message: Message, state: FSMContext):
 async def msg_sell_item(message: Message, state: FSMContext):
     user_id = message.from_user.id
     parts = (message.text or "").split()
-    
+
     if len(parts) != 2:
         await message.answer("Ошибка! Введите номер и количество через пробел.")
         return
@@ -1199,7 +1222,7 @@ async def msg_sell_item(message: Message, state: FSMContext):
         BalanceManager.save_balance(user_id, new_balance)
 
         arrow = "📈" if profit_loss > 0 else "📉" if profit_loss < 0 else "➡️"
-        
+
         result_message = (f"✅ Продано: {amount_to_sell} {item_name} | Получено: {total_sale}\n"
                           f"П/У: {arrow} {profit_loss:+d} | Баланс: {new_balance}")
 
